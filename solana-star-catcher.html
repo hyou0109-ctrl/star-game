@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solana Star Catcher</title>
+<style>
+:root{--p:#9945FF;--g:#14F195;--bg:#0b0618;--bg2:#1a0b3a;--tx:#f4eeff;color-scheme:dark;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:radial-gradient(120% 90% at 50% 0%,var(--bg2),var(--bg));color:var(--tx);
+font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;-webkit-user-select:none;user-select:none;touch-action:none}
+#app{height:100%;display:flex;flex-direction:column}
+header{padding:12px 16px 10px;text-align:center}
+h1{margin:0 0 8px;font-size:clamp(22px,5vw,34px);font-weight:800;letter-spacing:.02em;
+background:linear-gradient(90deg,var(--p),var(--g));-webkit-background-clip:text;background-clip:text;color:transparent}
+.stats{display:flex;justify-content:center;gap:12px}
+.stat{min-width:104px;padding:6px 14px;border:2px solid var(--p);border-radius:12px;background:rgba(153,69,255,.12)}
+.stat:last-child{border-color:var(--g);background:rgba(20,241,149,.1)}
+.stat small{display:block;font-size:12px;opacity:.75}
+.stat b{font-size:26px;font-variant-numeric:tabular-nums}
+#stage{position:relative;flex:1;min-height:0;margin:0 12px 12px;border-radius:16px;overflow:hidden;
+border:2px solid rgba(153,69,255,.5);background:rgba(0,0,0,.25)}
+canvas{width:100%;height:100%;display:block}
+#ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+padding:24px;text-align:center;background:rgba(11,6,24,.82)}
+#ov.hide{display:none}
+#ov h2{margin:0;font-size:clamp(22px,5vw,30px)}
+#ov p{margin:0;max-width:30ch;line-height:1.6;opacity:.85}
+#big{font-size:64px;font-weight:800;color:var(--g);line-height:1}
+button{font:inherit;font-size:20px;font-weight:700;color:#0b0618;border:0;border-radius:999px;padding:14px 40px;cursor:pointer;
+background:linear-gradient(90deg,var(--g),#7dffc9)}
+button:hover{filter:brightness(1.1)}
+button:focus-visible{outline:3px solid var(--p);outline-offset:3px}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+<h1>Solana Star Catcher</h1>
+<div class="stats">
+<div class="stat"><small>スコア</small><b id="sc">0</b></div>
+<div class="stat"><small>残り時間</small><b id="tm">30</b></div>
+</div>
+</header>
+<div id="stage">
+<canvas id="cv"></canvas>
+<div id="ov">
+<h2 id="oh">星をつかまえよう</h2>
+<p id="op">落ちてくる星をタップ。緑は1点、紫は3点。制限時間は30秒です。</p>
+<div id="big" hidden></div>
+<button id="go">スタート</button>
+</div>
+</div>
+</div>
+<script>
+(function(){
+var cv=document.getElementById('cv'),cx=cv.getContext('2d');
+var scEl=document.getElementById('sc'),tmEl=document.getElementById('tm');
+var ov=document.getElementById('ov'),oh=document.getElementById('oh'),op=document.getElementById('op');
+var big=document.getElementById('big'),go=document.getElementById('go');
+var W=0,H=0,dpr=1,stars=[],pops=[],score=0,left=30,running=false,last=0,spawn=0,endAt=0,best=0;
+try{best=+localStorage.getItem('ssc-best')||0}catch(e){}
+function fit(){
+  dpr=window.devicePixelRatio||1;
+  var r=cv.getBoundingClientRect();W=r.width;H=r.height;
+  cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',fit);fit();
+function star(x,y,R,rot){
+  cx.beginPath();
+  for(var i=0;i<10;i++){var a=rot+i*Math.PI/5-Math.PI/2,r=i%2?R*.45:R;
+    cx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);}
+  cx.closePath();
+}
+function add(){
+  var big=Math.random()<.25,s=big?22:30+Math.random()*10;
+  stars.push({x:s+Math.random()*(W-2*s),y:-s,r:s,v:(big?170:100)+Math.random()*70+(30-left)*3,
+    rot:Math.random()*6,w:(Math.random()-.5)*3,pt:big?3:1,c:big?'#9945FF':'#14F195'});
+}
+function draw(){
+  cx.clearRect(0,0,W,H);
+  stars.forEach(function(s){
+    cx.save();cx.shadowColor=s.c;cx.shadowBlur=18;cx.fillStyle=s.c;
+    star(s.x,s.y,s.r,s.rot);cx.fill();cx.restore();
+  });
+  pops.forEach(function(p){
+    cx.globalAlpha=Math.max(0,p.t);cx.fillStyle=p.c;cx.font='800 24px system-ui,sans-serif';
+    cx.textAlign='center';cx.fillText('+'+p.n,p.x,p.y);cx.globalAlpha=1;
+  });
+}
+function tick(t){
+  if(!running)return;
+  var dt=Math.min((t-last)/1000,.05);last=t;
+  left=Math.max(0,(endAt-t)/1000);
+  tmEl.textContent=Math.ceil(left);
+  spawn-=dt;
+  if(spawn<=0){add();spawn=Math.max(.28,.7-(30-left)*.014);}
+  stars.forEach(function(s){s.y+=s.v*dt;s.rot+=s.w*dt;});
+  stars=stars.filter(function(s){return s.y<H+s.r;});
+  pops.forEach(function(p){p.y-=40*dt;p.t-=dt*1.8;});
+  pops=pops.filter(function(p){return p.t>0;});
+  draw();
+  if(left<=0){finish();return;}
+  requestAnimationFrame(tick);
+}
+function start(){
+  stars=[];pops=[];score=0;left=30;spawn=0;scEl.textContent=0;tmEl.textContent=30;
+  ov.classList.add('hide');running=true;
+  last=performance.now();endAt=last+30000;
+  requestAnimationFrame(tick);
+}
+function finish(){
+  running=false;draw();
+  var isBest=score>best;
+  if(isBest){best=score;try{localStorage.setItem('ssc-best',best)}catch(e){}}
+  oh.textContent=isBest&&score>0?'ハイスコア更新！':'タイムアップ';
+  op.textContent='ベストスコア：'+best;
+  big.hidden=false;big.textContent=score+' 点';
+  go.textContent='もう一度';
+  ov.classList.remove('hide');
+}
+cv.addEventListener('pointerdown',function(e){
+  if(!running)return;
+  var r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  for(var i=stars.length-1;i>=0;i--){
+    var s=stars[i],d=Math.hypot(s.x-x,s.y-y);
+    if(d<=s.r+14){
+      score+=s.pt;scEl.textContent=score;
+      pops.push({x:s.x,y:s.y,n:s.pt,c:s.c,t:1});
+      stars.splice(i,1);break;
+    }
+  }
+});
+go.addEventListener('click',start);
+})();
+</script>
+</body>
+</html>
